@@ -3,8 +3,8 @@ const { createClient } = require('@sanity/client');
 const { JSDOM } = require('jsdom');
 const app = express();
 
-// The "Magic Line" that allows big TRON reports
-app.use(express.json({ limit: '50mb' })); 
+// Set high limits for big research reports
+app.use(express.json({ limit: '100mb' })); 
 
 const sanity = createClient({
   projectId: process.env.SANITY_PROJECT_ID,
@@ -18,55 +18,61 @@ app.post('/api/publish', async (req, res) => {
   try {
     const { html, title, images } = req.body;
     const dom = new JSDOM(html);
-    const elements = Array.from(dom.window.document.body.children);
+    const elements = Array.from(dom.window.document.body.querySelectorAll('p, h1, h2, h3, img'));
     const blocks = [];
 
-    // 1. Upload Images to Sanity Library
+    console.log(`Processing report: ${title} with ${images?.length || 0} images.`);
+
+    // 1. Upload all images to Sanity first
     const assetIds = [];
     if (images && images.length > 0) {
-      for (const base64 of images) {
-        const buffer = Buffer.from(base64, 'base64');
-        const asset = await sanity.assets.upload('image', buffer);
+      for (let i = 0; i < images.length; i++) {
+        const buffer = Buffer.from(images[i], 'base64');
+        const asset = await sanity.assets.upload('image', buffer, {
+          filename: `tron-q4-chart-${i}.png`
+        });
         assetIds.push(asset._id);
       }
     }
 
-    // 2. Map Text and Images in Sequence
+    // 2. Map Elements to Portable Text
     let imgIdx = 0;
-    elements.forEach(el => {
+    elements.forEach((el) => {
       const tagName = el.tagName.toLowerCase();
-      if (tagName === 'img' || el.textContent.includes('[IMAGE_PLACEHOLDER]')) {
+      const text = el.textContent.trim();
+
+      if (tagName === 'img' || text === '[IMAGE_PLACEHOLDER]') {
         if (assetIds[imgIdx]) {
           blocks.push({
             _type: 'image',
-            _key: Math.random().toString(36).slice(2, 9),
-            asset: { _type: 'reference', _ref: assetIds[imgIdx++] }
+            _key: `img_${Date.now()}_${imgIdx}`,
+            asset: { _type: 'reference', _ref: assetIds[imgIdx] }
           });
+          imgIdx++;
         }
-      } else if (el.textContent.trim()) {
+      } else if (text) {
         blocks.push({
           _type: 'block',
-          _key: Math.random().toString(36).slice(2, 9),
+          _key: `block_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           style: tagName.startsWith('h') ? tagName : 'normal',
-          children: [{ _type: 'span', text: el.textContent.trim() }]
+          children: [{ _type: 'span', text: text }]
         });
       }
     });
 
     const doc = await sanity.create({
-      _id: `drafts.tron-${Date.now()}`,
+      _id: `drafts.report-${Date.now()}`,
       _type: 'researchArticle',
       title: title,
       content: blocks
     });
 
-    res.json({ success: true, id: doc._id });
+    res.json({ success: true, id: doc._id, blockCount: blocks.length });
   } catch (err) {
+    console.error("Bridge Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/publish', (req, res) => res.send("RAILWAY_BRIDGE_ONLINE"));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
+app.get('/api/publish', (req, res) => res.send("BRIDGE_READY"));
+app.listen(process.env.PORT || 3000);
