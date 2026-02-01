@@ -1,54 +1,40 @@
-// ... (inside your app.post logic, replacing the element loop)
+const { JSDOM } = require('jsdom');
+const { htmlToBlocks } = require('@sanity/block-tools');
+const { Schema } = require('@sanity/schema');
 
-elements.forEach(el => {
-  const tagName = el.tagName.toLowerCase();
-  
-  if (tagName === 'img') {
-    // ... (keep image logic)
-  } else {
-    const markDefs = [];
-    const children = [];
+// Define a minimal schema so the tool knows what 'blocks' look like
+const defaultSchema = Schema.compile({
+  name: 'myBlog',
+  types: [{
+    type: 'object',
+    name: 'blogPost',
+    fields: [{
+      title: 'Body',
+      name: 'body',
+      type: 'array',
+      of: [{ type: 'block' }]
+    }]
+  }]
+});
+const blockContentType = defaultSchema.get('blogPost').fields.find(f => f.name === 'body').type;
 
-    // Map HTML tag to Sanity Block Style
-    const styleMap = { 'h1': 'h1', 'h2': 'h2', 'h3': 'h3', 'h4': 'h4', 'p': 'normal' };
-    const blockStyle = styleMap[tagName] || 'normal';
+app.post('/api/publish', async (req, res) => {
+  const { html, title, images } = req.body;
 
-    el.childNodes.forEach((node, idx) => {
-      let marks = [];
-      let text = node.textContent;
-      let href = null;
+  // Convert HTML to Sanity Blocks using the official tool
+  const blocks = htmlToBlocks(html, blockContentType, {
+    parseHtml: (html) => new JSDOM(html).window.document
+  });
 
-      // Detect Formatting from HTML tags
-      let currentNode = node;
-      while (currentNode && currentNode !== el) {
-        const tag = currentNode.tagName?.toLowerCase();
-        if (tag === 'b' || tag === 'strong') marks.push('strong');
-        if (tag === 'i' || tag === 'em') marks.push('em');
-        if (tag === 'a') {
-          href = currentNode.getAttribute('href');
-          const linkKey = `link_${idx}_${Date.now()}`;
-          markDefs.push({ _key: linkKey, _type: 'link', href });
-          marks.push(linkKey);
-        }
-        currentNode = currentNode.parentNode;
-      }
-
-      if (text) {
-        children.push({
-          _type: 'span',
-          _key: `span_${idx}_${Date.now()}`,
-          text: text,
-          marks: marks
-        });
-      }
+  // Create the document in Sanity
+  try {
+    const doc = await sanity.create({
+      _type: 'researchArticle',
+      title: title,
+      content: blocks
     });
-
-    blocks.push({
-      _type: 'block',
-      _key: `block_${Date.now()}_${Math.random()}`,
-      style: blockStyle,
-      children: children,
-      markDefs: markDefs
-    });
+    res.json({ success: true, id: doc._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
