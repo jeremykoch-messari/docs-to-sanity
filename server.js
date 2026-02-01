@@ -1,78 +1,54 @@
-const express = require('express');
-const { createClient } = require('@sanity/client');
-const { JSDOM } = require('jsdom');
-const app = express();
+// ... (inside your app.post logic, replacing the element loop)
 
-// Set high limits for big research reports
-app.use(express.json({ limit: '100mb' })); 
+elements.forEach(el => {
+  const tagName = el.tagName.toLowerCase();
+  
+  if (tagName === 'img') {
+    // ... (keep image logic)
+  } else {
+    const markDefs = [];
+    const children = [];
 
-const sanity = createClient({
-  projectId: process.env.SANITY_PROJECT_ID,
-  dataset: process.env.SANITY_DATASET,
-  token: process.env.SANITY_WRITE_TOKEN,
-  apiVersion: '2024-01-01',
-  useCdn: false,
-});
+    // Map HTML tag to Sanity Block Style
+    const styleMap = { 'h1': 'h1', 'h2': 'h2', 'h3': 'h3', 'h4': 'h4', 'p': 'normal' };
+    const blockStyle = styleMap[tagName] || 'normal';
 
-app.post('/api/publish', async (req, res) => {
-  try {
-    const { html, title, images } = req.body;
-    const dom = new JSDOM(html);
-    const elements = Array.from(dom.window.document.body.querySelectorAll('p, h1, h2, h3, img'));
-    const blocks = [];
+    el.childNodes.forEach((node, idx) => {
+      let marks = [];
+      let text = node.textContent;
+      let href = null;
 
-    console.log(`Processing report: ${title} with ${images?.length || 0} images.`);
-
-    // 1. Upload all images to Sanity first
-    const assetIds = [];
-    if (images && images.length > 0) {
-      for (let i = 0; i < images.length; i++) {
-        const buffer = Buffer.from(images[i], 'base64');
-        const asset = await sanity.assets.upload('image', buffer, {
-          filename: `tron-q4-chart-${i}.png`
-        });
-        assetIds.push(asset._id);
-      }
-    }
-
-    // 2. Map Elements to Portable Text
-    let imgIdx = 0;
-    elements.forEach((el) => {
-      const tagName = el.tagName.toLowerCase();
-      const text = el.textContent.trim();
-
-      if (tagName === 'img' || text === '[IMAGE_PLACEHOLDER]') {
-        if (assetIds[imgIdx]) {
-          blocks.push({
-            _type: 'image',
-            _key: `img_${Date.now()}_${imgIdx}`,
-            asset: { _type: 'reference', _ref: assetIds[imgIdx] }
-          });
-          imgIdx++;
+      // Detect Formatting from HTML tags
+      let currentNode = node;
+      while (currentNode && currentNode !== el) {
+        const tag = currentNode.tagName?.toLowerCase();
+        if (tag === 'b' || tag === 'strong') marks.push('strong');
+        if (tag === 'i' || tag === 'em') marks.push('em');
+        if (tag === 'a') {
+          href = currentNode.getAttribute('href');
+          const linkKey = `link_${idx}_${Date.now()}`;
+          markDefs.push({ _key: linkKey, _type: 'link', href });
+          marks.push(linkKey);
         }
-      } else if (text) {
-        blocks.push({
-          _type: 'block',
-          _key: `block_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          style: tagName.startsWith('h') ? tagName : 'normal',
-          children: [{ _type: 'span', text: text }]
+        currentNode = currentNode.parentNode;
+      }
+
+      if (text) {
+        children.push({
+          _type: 'span',
+          _key: `span_${idx}_${Date.now()}`,
+          text: text,
+          marks: marks
         });
       }
     });
 
-    const doc = await sanity.create({
-      _id: `drafts.report-${Date.now()}`,
-      _type: 'researchArticle',
-      title: title,
-      content: blocks
+    blocks.push({
+      _type: 'block',
+      _key: `block_${Date.now()}_${Math.random()}`,
+      style: blockStyle,
+      children: children,
+      markDefs: markDefs
     });
-
-    res.json({ success: true, id: doc._id, blockCount: blocks.length });
-  } catch (err) {
-    console.error("Bridge Error:", err.message);
-    res.status(500).json({ error: err.message });
   }
 });
-
-app.get('/api/publish', (req, res) => res.send("BRIDGE_READY"));
-app.listen(process.env.PORT || 3000);
