@@ -40,7 +40,7 @@ app.post('/api/publish', async (req, res) => {
     // To ensure it's a draft, we use the .create() method but 
     // we prefix the ID inside the create call.
     const doc = await sanity.create({
-      _id: 'drafts' + crypto.randomUUID(),
+      _id: 'drafts.' + crypto.randomUUID(),
       _type: 'researchArticle',
       title: title,
       content: blocks
