@@ -15,45 +15,45 @@ const sanity = createClient({
 
 app.post('/api/publish', async (req, res) => {
   try {
-    const { title, contentOrder } = req.body;
-    const finalBlocks = [];
+    // LOG EVERYTHING to see what is actually arriving
+    console.log('--- DATA RECEIVED ---');
+    console.log('Keys present in body:', Object.keys(req.body));
 
-    for (const item of contentOrder) {
-      if (item.type === 'text') {
-        // Build children with links
+    // Try to find the data even if the name is slightly different
+    const data = req.body.contentOrder || req.body.data || req.body;
+    
+    if (!data || !Array.isArray(data)) {
+      console.error('❌ Data is not an array. Value:', typeof data);
+      return res.status(400).json({ error: "Data format error. Received: " + typeof data });
+    }
+
+    const finalBlocks = [];
+    for (const item of data) {
+      if (item.type === 'text' && item.runs) {
         const children = item.runs.map(run => {
-          const span = {
-            _type: 'span',
-            _key: crypto.randomUUID(),
-            text: run.text,
-            marks: []
-          };
+          const span = { _type: 'span', _key: crypto.randomUUID(), text: run.text || '', marks: [] };
           if (run.bold) span.marks.push('strong');
           if (run.link) {
             const linkKey = crypto.randomUUID();
             span.marks.push(linkKey);
-            // We'll add the mark definition below
             return { span, link: run.link, linkKey };
           }
           return { span };
         });
 
-        const block = {
+        finalBlocks.push({
           _type: 'block',
           _key: crypto.randomUUID(),
-          style: item.style === 'NORMAL' ? 'normal' : 'h2',
+          style: (item.style && item.style.includes('HEADING')) ? 'h2' : 'normal',
           children: children.map(c => c.span),
           markDefs: children.filter(c => c.link).map(c => ({
             _type: 'link',
             _key: c.linkKey,
             href: c.link
           }))
-        };
-        finalBlocks.push(block);
-
-      } else if (item.type === 'image') {
-        const imageBuffer = Buffer.from(item.base64, 'base64');
-        const asset = await sanity.assets.upload('image', imageBuffer);
+        });
+      } else if (item.type === 'image' && item.base64) {
+        const asset = await sanity.assets.upload('image', Buffer.from(item.base64, 'base64'));
         finalBlocks.push({
           _type: 'image',
           _key: crypto.randomUUID(),
@@ -65,19 +65,21 @@ app.post('/api/publish', async (req, res) => {
     const doc = await sanity.createOrReplace({
       _id: 'drafts.' + crypto.randomUUID(),
       _type: 'researchArticle',
-      title: title,
+      title: req.body.title || 'Untitled Research',
       content: finalBlocks,
       subscriptionTier: 'enterprise',
       type: 'enterprise_research',
       publishDate: new Date().toISOString(),
-      slug: { _type: 'slug', current: title.toLowerCase().replace(/\s+/g, '-') }
+      slug: { _type: 'slug', current: (req.body.title || 'report').toLowerCase().replace(/\s+/g, '-') }
     });
 
+    console.log('✅ SUCCESS! ID:', doc._id);
     res.json({ success: true, id: doc._id });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).send(err.message);
+    console.error('❌ CRASH:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
-app.listen(8080);
+app.listen(process.env.PORT || 8080);
