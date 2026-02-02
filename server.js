@@ -1,5 +1,8 @@
 const express = require('express');
 const { createClient } = require('@sanity/client');
+const { JSDOM } = require('jsdom');
+const { htmlToBlocks } = require('@sanity/block-tools');
+const { Schema } = require('@sanity/schema');
 const crypto = require('crypto');
 
 const app = express();
@@ -13,48 +16,28 @@ const sanity = createClient({
   useCdn: false
 });
 
+// Setup Schema for HTML Parsing
+const defaultSchema = Schema.compile({
+  name: 'messari',
+  types: [{ type: 'object', name: 'researchArticle', fields: [{ name: 'content', type: 'array', of: [{ type: 'block' }, { type: 'image' }] }] }]
+});
+const blockContentType = defaultSchema.get('researchArticle').fields.find(f => f.name === 'content').type;
+
 app.post('/api/publish', async (req, res) => {
   try {
-    // LOG EVERYTHING to see what is actually arriving
-    console.log('--- DATA RECEIVED ---');
-    console.log('Keys present in body:', Object.keys(req.body));
+    const { title, html, images } = req.body;
+    console.log('🚀 Processing: ' + title);
 
-    // Try to find the data even if the name is slightly different
-    const data = req.body.contentOrder || req.body.data || req.body;
-    
-    if (!data || !Array.isArray(data)) {
-      console.error('❌ Data is not an array. Value:', typeof data);
-      return res.status(400).json({ error: "Data format error. Received: " + typeof data });
-    }
+    // 1. Parse HTML (This gets your text AND links perfectly)
+    const blocks = htmlToBlocks(html, blockContentType, {
+      parseHtml: (html) => new JSDOM(html).window.document
+    });
 
-    const finalBlocks = [];
-    for (const item of data) {
-      if (item.type === 'text' && item.runs) {
-        const children = item.runs.map(run => {
-          const span = { _type: 'span', _key: crypto.randomUUID(), text: run.text || '', marks: [] };
-          if (run.bold) span.marks.push('strong');
-          if (run.link) {
-            const linkKey = crypto.randomUUID();
-            span.marks.push(linkKey);
-            return { span, link: run.link, linkKey };
-          }
-          return { span };
-        });
-
-        finalBlocks.push({
-          _type: 'block',
-          _key: crypto.randomUUID(),
-          style: (item.style && item.style.includes('HEADING')) ? 'h2' : 'normal',
-          children: children.map(c => c.span),
-          markDefs: children.filter(c => c.link).map(c => ({
-            _type: 'link',
-            _key: c.linkKey,
-            href: c.link
-          }))
-        });
-      } else if (item.type === 'image' && item.base64) {
-        const asset = await sanity.assets.upload('image', Buffer.from(item.base64, 'base64'));
-        finalBlocks.push({
+    // 2. Append Images (Jan 27th style)
+    if (images && Array.isArray(images)) {
+      for (const base64 of images) {
+        const asset = await sanity.assets.upload('image', Buffer.from(base64, 'base64'));
+        blocks.push({
           _type: 'image',
           _key: crypto.randomUUID(),
           asset: { _type: 'reference', _ref: asset._id }
@@ -62,22 +45,23 @@ app.post('/api/publish', async (req, res) => {
       }
     }
 
-    const doc = await sanity.createOrReplace({
+    // 3. Create Draft with UUID
+    const doc = await sanity.create({
       _id: 'drafts.' + crypto.randomUUID(),
       _type: 'researchArticle',
-      title: req.body.title || 'Untitled Research',
-      content: finalBlocks,
+      title: title || 'New Research',
+      content: blocks,
       subscriptionTier: 'enterprise',
       type: 'enterprise_research',
       publishDate: new Date().toISOString(),
-      slug: { _type: 'slug', current: (req.body.title || 'report').toLowerCase().replace(/\s+/g, '-') }
+      slug: { _type: 'slug', current: (title || 'report').toLowerCase().replace(/\s+/g, '-') + '-' + Date.now() }
     });
 
-    console.log('✅ SUCCESS! ID:', doc._id);
+    console.log('✅ Success! Created: ' + doc._id);
     res.json({ success: true, id: doc._id });
 
   } catch (err) {
-    console.error('❌ CRASH:', err.message);
+    console.error('❌ Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
