@@ -76,10 +76,15 @@ app.post('/api/publish', async (req, res) => {
     console.log(`✅ Success! ID: ${doc._id}`);
     res.json({ success: true, id: doc._id });
   } catch (err) {
-    // Log the full error object so we can see validation details in Railway
-    console.error("FULL SANITY ERROR:", JSON.stringify(err, null, 2));
-    res.status(500).json({ error: err.message });
+  // This extracts the specific validation error from Sanity
+  console.error("--- SANITY REJECTION DETAILS ---");
+  console.error("Status:", err.statusCode);
+  console.error("Message:", err.message);
+  if (err.details) {
+    console.error("Details:", JSON.stringify(err.details, null, 2));
   }
+  res.status(500).json({ error: err.message, details: err.details });
+}
 });
 
 // --- 5. START SERVER ---
