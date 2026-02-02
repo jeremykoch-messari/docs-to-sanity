@@ -2,8 +2,7 @@ const express = require('express');
 const { createClient } = require('@sanity/client');
 
 const app = express();
-// Increased limit to handle images without SIGTERM crashes
-app.use(express.json({ limit: '100mb' })); 
+app.use(express.json({ limit: '50mb' })); 
 
 const client = createClient({
   projectId: '2bt0j8lu',
@@ -16,33 +15,33 @@ const client = createClient({
 app.post('/api/publish', async (req, res) => {
   try {
     const { title, contentOrder } = req.body;
-    if (!contentOrder) return res.status(400).send("No data received");
-
-    console.log(`🚀 Processing ${contentOrder.length} items for: ${title}`);
+    if (!contentOrder) return res.status(400).send("No data");
 
     const blocks = [];
 
-    for (const item of contentOrder) {
-      // Create a unique key using timestamp + random
-      const baseKey = `k${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    for (let i = 0; i < contentOrder.length; i++) {
+      const item = contentOrder[i];
+      const baseKey = `k${i}_${Date.now()}`;
 
       if (item.type === 'text') {
         const markDefs = [];
-        const spans = item.runs.map((run, i) => {
-          const mKey = `${baseKey}${i}`;
+        const spans = item.runs.map((run, idx) => {
+          const mKey = `${baseKey}_${idx}`;
           const marks = [];
+          
           if (run.bold) marks.push('strong');
           if (run.link) {
             marks.push(mKey);
             markDefs.push({ _key: mKey, _type: 'link', href: run.link });
           }
-          return { _type: 'span', _key: mKey, text: run.text, marks };
+          
+          return { _type: 'span', _key: mKey, text: run.text || '', marks };
         });
 
         blocks.push({
           _type: 'block',
           _key: baseKey,
-          style: item.style.includes('HEADING') ? 'h2' : 'normal',
+          style: item.style && item.style.includes('HEADING') ? 'h2' : 'normal',
           children: spans,
           markDefs
         });
@@ -57,21 +56,22 @@ app.post('/api/publish', async (req, res) => {
     }
 
     const doc = await client.create({
-      _id: `drafts.manual_${Date.now()}`,
+      _id: `drafts.doc_${Date.now()}`,
       _type: 'researchArticle',
-      title: title,
+      title: title || 'Untitled',
       content: blocks,
       subscriptionTier: 'enterprise',
       type: 'enterprise_research',
       publishDate: new Date().toISOString(),
-      slug: { _type: 'slug', current: title.toLowerCase().replace(/\s+/g, '-') }
+      slug: { _type: 'slug', current: (title || 'report').toLowerCase().replace(/\s+/g, '-') }
     });
 
     res.json({ success: true, id: doc._id });
   } catch (err) {
-    console.error('❌ Server Error:', err.message);
+    console.error('SERVER ERROR:', err.message);
     res.status(500).send(err.message);
   }
 });
 
-app.listen(process.env.PORT || 8080, () => console.log("Bridge Online"));
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`Listening on ${PORT}`));
