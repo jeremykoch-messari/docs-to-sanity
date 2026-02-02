@@ -1,77 +1,76 @@
+const express = require('express');
+const crypto = require('crypto'); // Built-in: No install needed
 const { createClient } = require('@sanity/client');
 
 const app = express();
-app.use(express.json({ limit: '100mb' })); 
+app.use(express.json({ limit: '50mb' }));
 
-const client = createClient({
-  projectId: '2bt0j8lu',
-@@ -15,7 +15,11 @@ const client = createClient({
-app.post('/api/publish', async (req, res) => {
+// Initialize Sanity Client
+const sanity = createClient({
+  projectId: process.env.SANITY_PROJECT_ID,
+  dataset: 'production',
+  token: process.env.SANITY_API_TOKEN,
+  apiVersion: '2026-02-02',
+  useCdn: false
+});
+
+app.post('/publish', async (req, res) => {
   try {
-    const { title, contentOrder } = req.body;
-    if (!contentOrder || !Array.isArray(contentOrder)) {
-      return res.status(400).send("Invalid data format");
-    }
+    const { _id, title, content } = req.body;
 
-    console.log(`🚀 Processing: ${title} (${contentOrder.length} items)`);
+    // 1. Ensure the ID follows the 'drafts.[UUID]' structure
+    // We prioritize the ID sent from Google, but validate it here
+    const finalId = (_id && _id.startsWith('drafts.')) ? _id : `drafts.${crypto.randomUUID()}`;
 
-    const blocks = [];
+    console.log(`Processing Draft: ${title} | ID: ${finalId}`);
 
-@@ -26,26 +30,28 @@ app.post('/api/publish', async (req, res) => {
+    // 2. Map Ordered Content for Sanity Portable Text
+    const bodyBlocks = [];
+    
+    for (const item of content) {
       if (item.type === 'text') {
-        const markDefs = [];
-        const spans = item.runs.map((run, idx) => {
-          const spanKey = `s${baseKey}${idx}`;
-          const marks = [];
-
-          if (run.bold) marks.push('strong');
-          if (run.link) {
-            marks.push(spanKey);
-            markDefs.push({ _key: spanKey, _type: 'link', href: run.link });
-          }
-
-          return { _type: 'span', _key: spanKey, text: run.text || '', marks };
-        });
-
-        blocks.push({
+        bodyBlocks.push({
           _type: 'block',
-          _key: baseKey,
-          style: item.style?.includes('HEADING') ? 'h2' : 'normal',
-          children: spans,
-          markDefs
+          children: [{ _type: 'span', text: item.value }]
         });
-
       } else if (item.type === 'image') {
-        // Upload the image asset and place it exactly in sequence
-        const asset = await client.assets.upload('image', Buffer.from(item.base64, 'base64'));
-        blocks.push({
+        // Upload the image asset to Sanity
+        const buffer = Buffer.from(item.base64, 'base64');
+        const asset = await sanity.assets.upload('image', buffer, {
+          contentType: item.contentType || 'image/png',
+          filename: `${finalId}-image`
+        });
+        
+        // Push image reference into the body blocks array
+        bodyBlocks.push({
           _type: 'image',
-@@ -55,23 +61,28 @@ app.post('/api/publish', async (req, res) => {
+          asset: { _type: 'reference', _ref: asset._id }
+        });
       }
     }
 
-    // Create as a Draft with a unique ID to prevent collisions
-    const doc = await client.create({
-      _id: `drafts.manual_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      _type: 'researchArticle',
+    // 3. Create or Replace in Sanity
+    const result = await sanity.createOrReplace({
+      _type: 'post', // Ensure this matches your Sanity Schema name
+      _id: finalId,
       title: title,
-      content: blocks,
-      subscriptionTier: 'enterprise',
-      type: 'enterprise_research',
-      publishDate: new Date().toISOString(),
-      slug: { _type: 'slug', current: title.toLowerCase().replace(/\s+/g, '-') }
+      body: bodyBlocks
     });
 
-    console.log(`✅ Draft Created: ${doc._id}`);
-    res.json({ success: true, id: doc._id });
+    res.status(200).json({ 
+        status: "success", 
+        id: result._id,
+        itemsProcessed: content.length 
+    });
 
   } catch (err) {
-    console.error('❌ Server Error:', err.message);
-    res.status(500).send(err.message);
+    console.error("Sanity Push Error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Bridge Online on Port ${PORT}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Railway Server Online on Port ${PORT}`);
+  console.log(`Ready for IDs like: drafts.${crypto.randomUUID()}`);
 });
