@@ -3,6 +3,7 @@ const { createClient } = require('@sanity/client');
 const { JSDOM } = require('jsdom');
 const { htmlToBlocks } = require('@sanity/block-tools');
 const { Schema } = require('@sanity/schema');
+const crypto = require('crypto');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -39,7 +40,7 @@ app.post('/api/publish', async (req, res) => {
     // To ensure it's a draft, we use the .create() method but 
     // we prefix the ID inside the create call.
     const doc = await sanity.create({
-      _id: `drafts.${Math.floor(Date.now() / 1000)}`, // Manual draft ID
+      _id: `drafts.${crypto.randomUUID()}', 
       _type: 'researchArticle',
       title: title,
       content: blocks
