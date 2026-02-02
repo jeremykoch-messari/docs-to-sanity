@@ -16,37 +16,45 @@ const sanity = createClient({
 app.post('/api/publish', async (req, res) => {
   try {
     const { title, contentOrder } = req.body;
-    
-    // Safety check to prevent the "Not Iterable" crash
-    const list = contentOrder || [];
-    if (!Array.isArray(list)) {
-      throw new Error("Data received is not an array. Check Google Script.");
+    console.log(`🚀 Received ${contentOrder?.length || 0} items for: ${title}`);
+
+    if (!contentOrder || contentOrder.length === 0) {
+      return res.status(400).json({ error: "No content detected in the request." });
     }
 
     const finalBlocks = [];
-    for (const item of list) {
+
+    for (const item of contentOrder) {
       if (item.type === 'text') {
+        const markDefs = [];
         const children = item.runs.map(run => {
-          const span = { _type: 'span', _key: crypto.randomUUID(), text: run.text, marks: [] };
-          if (run.bold) span.marks.push('strong');
+          const marks = [];
+          if (run.bold) marks.push('strong');
           if (run.link) {
-            const linkKey = crypto.randomUUID();
-            span.marks.push(linkKey);
-            return { span, link: run.link, linkKey };
+            const linkKey = `l${crypto.randomBytes(4).toString('hex')}`;
+            marks.push(linkKey);
+            markDefs.push({
+              _key: linkKey,
+              _type: 'link',
+              href: run.link
+            });
           }
-          return { span };
+
+          return {
+            _type: 'span',
+            _key: crypto.randomUUID(),
+            text: run.text,
+            marks: marks
+          };
         });
 
         finalBlocks.push({
           _type: 'block',
           _key: crypto.randomUUID(),
-          style: item.style === 'NORMAL' ? 'normal' : 'h2',
-          children: children.map(c => c.span),
-          markDefs: children.filter(c => c.link).map(c => ({
-            _type: 'link',
-            _key: c.linkKey,
-            href: c.link
-          }))
+          // Map Google Headings to Sanity styles
+          style: item.style.includes('HEADING') ? 'h2' : 'normal',
+          children: children,
+          markDefs: markDefs
         });
       } else if (item.type === 'image') {
         const asset = await sanity.assets.upload('image', Buffer.from(item.base64, 'base64'));
@@ -71,7 +79,7 @@ app.post('/api/publish', async (req, res) => {
 
     res.json({ success: true, id: doc._id });
   } catch (err) {
-    console.error('❌ Error:', err.message);
+    console.error('❌ Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
