@@ -31,7 +31,7 @@ const blockContentType = defaultSchema.get('researchArticle').fields.find(f => f
 // --- 4. THE PUBLISH ROUTE ---
 app.post('/api/publish', async (req, res) => {
   try {
-    const { html, title, images } = req.body;
+    const { html, title } = req.body;
     console.log(`🚀 Processing: ${title}`);
 
     // Convert HTML to Sanity Blocks
@@ -39,24 +39,23 @@ app.post('/api/publish', async (req, res) => {
       parseHtml: (html) => new JSDOM(html).window.document
     });
 
-    // Create the document in Sanity with all required fields from your Inspect data
+    // Create the document as a DRAFT
     const doc = await sanity.create({
+      // This line is the secret to making it a draft:
+      _id: `drafts.gdoc-${Date.now()}`, 
       _type: 'researchArticle',
       title: title,
       content: blocks,
       
-      // Fields required by your specific schema
       subscriptionTier: 'enterprise', 
       type: 'enterprise_research',    
       publishDate: new Date().toISOString(),
       
-      // Slug is mandatory for Studio navigation
       slug: {
         _type: 'slug',
-        current: title.toLowerCase().replace(/\s+/g, '-').slice(0, 200)
+        current: title.toLowerCase().replace(/\s+/g, '-').slice(0, 180) + '-' + Math.floor(Date.now() / 1000)
       },
 
-      // Reference fields using IDs from your successful manual posts
       authors: [
         {
           _key: `author_${Date.now()}`,
@@ -69,24 +68,21 @@ app.post('/api/publish', async (req, res) => {
         _ref: '238a45f6-defd-4437-874e-9cc5d054d423' 
       },
 
-      // Placeholder to satisfy validation
       aiSummary: "Draft generated via Google Docs Bridge."
     });
 
-    console.log(`✅ Success! ID: ${doc._id}`);
+    console.log(`✅ Success! Draft Created: ${doc._id}`);
     res.json({ success: true, id: doc._id });
   } catch (err) {
-  // This extracts the specific validation error from Sanity
-  console.error("--- SANITY REJECTION DETAILS ---");
-  console.error("Status:", err.statusCode);
-  console.error("Message:", err.message);
-  if (err.details) {
-    console.error("Details:", JSON.stringify(err.details, null, 2));
+    console.error("--- SANITY REJECTION DETAILS ---");
+    console.error("Status:", err.statusCode);
+    console.error("Message:", err.message);
+    if (err.details) {
+      console.error("Details:", JSON.stringify(err.details, null, 2));
+    }
+    res.status(500).json({ error: err.message, details: err.details });
   }
-  res.status(500).json({ error: err.message, details: err.details });
-}
 });
-
 // --- 5. START SERVER ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🛰️ Messari Bridge live on ${PORT}`));
