@@ -16,14 +16,8 @@ const sanity = createClient({
 app.post('/api/publish', async (req, res) => {
   try {
     const { title, contentOrder } = req.body;
-    console.log(`🚀 Received ${contentOrder?.length || 0} items for: ${title}`);
-
-    if (!contentOrder || contentOrder.length === 0) {
-      return res.status(400).json({ error: "No content detected in the request." });
-    }
-
+    
     const finalBlocks = [];
-
     for (const item of contentOrder) {
       if (item.type === 'text') {
         const markDefs = [];
@@ -31,28 +25,17 @@ app.post('/api/publish', async (req, res) => {
           const marks = [];
           if (run.bold) marks.push('strong');
           if (run.link) {
-            const linkKey = `l${crypto.randomBytes(4).toString('hex')}`;
-            marks.push(linkKey);
-            markDefs.push({
-              _key: linkKey,
-              _type: 'link',
-              href: run.link
-            });
+            const key = `link${crypto.randomBytes(4).toString('hex')}`;
+            marks.push(key);
+            markDefs.push({ _key: key, _type: 'link', href: run.link });
           }
-
-          return {
-            _type: 'span',
-            _key: crypto.randomUUID(),
-            text: run.text,
-            marks: marks
-          };
+          return { _type: 'span', _key: crypto.randomUUID(), text: run.text, marks: marks };
         });
 
         finalBlocks.push({
           _type: 'block',
           _key: crypto.randomUUID(),
-          // Map Google Headings to Sanity styles
-          style: item.style.includes('HEADING') ? 'h2' : 'normal',
+          style: 'normal',
           children: children,
           markDefs: markDefs
         });
@@ -69,17 +52,16 @@ app.post('/api/publish', async (req, res) => {
     const doc = await sanity.create({
       _id: 'drafts.' + crypto.randomUUID(),
       _type: 'researchArticle',
-      title: title || 'New Research',
+      title: title,
       content: finalBlocks,
       subscriptionTier: 'enterprise',
       type: 'enterprise_research',
       publishDate: new Date().toISOString(),
-      slug: { _type: 'slug', current: (title || 'report').toLowerCase().replace(/\s+/g, '-') + '-' + Date.now() }
+      slug: { _type: 'slug', current: title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now() }
     });
 
     res.json({ success: true, id: doc._id });
   } catch (err) {
-    console.error('❌ Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
