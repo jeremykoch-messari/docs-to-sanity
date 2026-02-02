@@ -1,52 +1,77 @@
-const express = require('express');
-const crypto = require('crypto'); // Native Node.js module
 const { createClient } = require('@sanity/client');
 
 const app = express();
-app.use(express.json({ limit: '50mb' })); // Large limit for images
+app.use(express.json({ limit: '100mb' })); 
 
-const sanity = createClient({
-  projectId: 'your_id',
-  dataset: 'production',
-  token: process.env.SANITY_TOKEN,
-  apiVersion: '2026-02-02',
-  useCdn: false
-});
-
-app.post('/publish', async (req, res) => {
+const client = createClient({
+  projectId: '2bt0j8lu',
+@@ -15,7 +15,11 @@ const client = createClient({
+app.post('/api/publish', async (req, res) => {
   try {
-    const { _id, title, content } = req.body;
-
-    // Validate ID structure: drafts.[uuid]
-    let finalId = _id;
-    if (!finalId || !finalId.startsWith('drafts.')) {
-      finalId = `drafts.${crypto.randomUUID()}`;
+    const { title, contentOrder } = req.body;
+    if (!contentOrder || !Array.isArray(contentOrder)) {
+      return res.status(400).send("Invalid data format");
     }
 
-    console.log(`Processing ${title} with ID: ${finalId}`);
+    console.log(`🚀 Processing: ${title} (${contentOrder.length} items)`);
 
-    // This is where you map the ordered 'content' array into Sanity blocks
-    // Text items become blocks, Image items become assets
-    const sanityDoc = {
-      _type: 'post',
-      _id: finalId,
+    const blocks = [];
+
+@@ -26,26 +30,28 @@ app.post('/api/publish', async (req, res) => {
+      if (item.type === 'text') {
+        const markDefs = [];
+        const spans = item.runs.map((run, idx) => {
+          const spanKey = `s${baseKey}${idx}`;
+          const marks = [];
+
+          if (run.bold) marks.push('strong');
+          if (run.link) {
+            marks.push(spanKey);
+            markDefs.push({ _key: spanKey, _type: 'link', href: run.link });
+          }
+
+          return { _type: 'span', _key: spanKey, text: run.text || '', marks };
+        });
+
+        blocks.push({
+          _type: 'block',
+          _key: baseKey,
+          style: item.style?.includes('HEADING') ? 'h2' : 'normal',
+          children: spans,
+          markDefs
+        });
+
+      } else if (item.type === 'image') {
+        // Upload the image asset and place it exactly in sequence
+        const asset = await client.assets.upload('image', Buffer.from(item.base64, 'base64'));
+        blocks.push({
+          _type: 'image',
+@@ -55,23 +61,28 @@ app.post('/api/publish', async (req, res) => {
+      }
+    }
+
+    // Create as a Draft with a unique ID to prevent collisions
+    const doc = await client.create({
+      _id: `drafts.manual_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      _type: 'researchArticle',
       title: title,
-      body: content.map(item => {
-        if (item.type === 'text') {
-          return { _type: 'block', children: [{ _type: 'span', text: item.value }] };
-        }
-        // Image logic would go here (uploading asset then referencing it)
-        return null; 
-      }).filter(Boolean)
-    };
+      content: blocks,
+      subscriptionTier: 'enterprise',
+      type: 'enterprise_research',
+      publishDate: new Date().toISOString(),
+      slug: { _type: 'slug', current: title.toLowerCase().replace(/\s+/g, '-') }
+    });
 
-    await sanity.createOrReplace(sanityDoc);
-    
-    res.status(200).json({ status: "success", id: finalId });
+    console.log(`✅ Draft Created: ${doc._id}`);
+    res.json({ success: true, id: doc._id });
+
   } catch (err) {
-    console.error(err);
+    console.error('❌ Server Error:', err.message);
     res.status(500).send(err.message);
   }
 });
 
-app.listen(process.env.PORT || 3000);
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Bridge Online on Port ${PORT}`);
+});
