@@ -15,27 +15,40 @@ const sanity = createClient({
 
 app.post('/api/publish', async (req, res) => {
   try {
-    const { title, sequence } = req.body;
-    console.log('🚀 Processing Ordered Document: ' + title);
+    const { title, contentOrder } = req.body;
+    
+    // Safety check to prevent the "Not Iterable" crash
+    const list = contentOrder || [];
+    if (!Array.isArray(list)) {
+      throw new Error("Data received is not an array. Check Google Script.");
+    }
 
     const finalBlocks = [];
-
-    for (const item of sequence) {
+    for (const item of list) {
       if (item.type === 'text') {
-        // Create a standard Sanity text block
+        const children = item.runs.map(run => {
+          const span = { _type: 'span', _key: crypto.randomUUID(), text: run.text, marks: [] };
+          if (run.bold) span.marks.push('strong');
+          if (run.link) {
+            const linkKey = crypto.randomUUID();
+            span.marks.push(linkKey);
+            return { span, link: run.link, linkKey };
+          }
+          return { span };
+        });
+
         finalBlocks.push({
           _type: 'block',
           _key: crypto.randomUUID(),
-          style: 'normal',
-          children: [{
-            _type: 'span',
-            _key: crypto.randomUUID(),
-            text: item.text,
-            marks: []
-          }]
+          style: item.style === 'NORMAL' ? 'normal' : 'h2',
+          children: children.map(c => c.span),
+          markDefs: children.filter(c => c.link).map(c => ({
+            _type: 'link',
+            _key: c.linkKey,
+            href: c.link
+          }))
         });
       } else if (item.type === 'image') {
-        // Upload image and insert it RIGHT HERE in the sequence
         const asset = await sanity.assets.upload('image', Buffer.from(item.base64, 'base64'));
         finalBlocks.push({
           _type: 'image',
@@ -48,12 +61,12 @@ app.post('/api/publish', async (req, res) => {
     const doc = await sanity.create({
       _id: 'drafts.' + crypto.randomUUID(),
       _type: 'researchArticle',
-      title: title,
+      title: title || 'New Research',
       content: finalBlocks,
       subscriptionTier: 'enterprise',
       type: 'enterprise_research',
       publishDate: new Date().toISOString(),
-      slug: { _type: 'slug', current: title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now() }
+      slug: { _type: 'slug', current: (title || 'report').toLowerCase().replace(/\s+/g, '-') + '-' + Date.now() }
     });
 
     res.json({ success: true, id: doc._id });
