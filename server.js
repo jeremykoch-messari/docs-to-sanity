@@ -1,10 +1,10 @@
 const express = require('express');
 const { createClient } = require('@sanity/client');
+const crypto = require('crypto');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
-// Using the credentials you provided directly to rule out Railway Variable errors
 const sanity = createClient({
   projectId: '2bt0j8lu',
   dataset: 'production',
@@ -15,22 +15,69 @@ const sanity = createClient({
 
 app.post('/api/publish', async (req, res) => {
   try {
-    const { title } = req.body;
-    console.log('🚀 TESTING CONNECTION FOR: ' + title);
+    const { title, contentOrder } = req.body;
+    const finalBlocks = [];
 
-    // SIMPLEST POSSIBLE CREATE: No custom ID, no Drafts, no metadata
-    const doc = await sanity.create({
+    for (const item of contentOrder) {
+      if (item.type === 'text') {
+        // Build children with links
+        const children = item.runs.map(run => {
+          const span = {
+            _type: 'span',
+            _key: crypto.randomUUID(),
+            text: run.text,
+            marks: []
+          };
+          if (run.bold) span.marks.push('strong');
+          if (run.link) {
+            const linkKey = crypto.randomUUID();
+            span.marks.push(linkKey);
+            // We'll add the mark definition below
+            return { span, link: run.link, linkKey };
+          }
+          return { span };
+        });
+
+        const block = {
+          _type: 'block',
+          _key: crypto.randomUUID(),
+          style: item.style === 'NORMAL' ? 'normal' : 'h2',
+          children: children.map(c => c.span),
+          markDefs: children.filter(c => c.link).map(c => ({
+            _type: 'link',
+            _key: c.linkKey,
+            href: c.link
+          }))
+        };
+        finalBlocks.push(block);
+
+      } else if (item.type === 'image') {
+        const imageBuffer = Buffer.from(item.base64, 'base64');
+        const asset = await sanity.assets.upload('image', imageBuffer);
+        finalBlocks.push({
+          _type: 'image',
+          _key: crypto.randomUUID(),
+          asset: { _type: 'reference', _ref: asset._id }
+        });
+      }
+    }
+
+    const doc = await sanity.createOrReplace({
+      _id: 'drafts.' + crypto.randomUUID(),
       _type: 'researchArticle',
-      title: title + ' (Connection Test)'
+      title: title,
+      content: finalBlocks,
+      subscriptionTier: 'enterprise',
+      type: 'enterprise_research',
+      publishDate: new Date().toISOString(),
+      slug: { _type: 'slug', current: title.toLowerCase().replace(/\s+/g, '-') }
     });
 
-    console.log('✅ SUCCESS! Document ID: ' + doc._id);
     res.json({ success: true, id: doc._id });
   } catch (err) {
-    console.error('❌ STILL FAILING: ' + err.message);
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).send(err.message);
   }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log('Bridge live on ' + PORT));
+app.listen(8080);
