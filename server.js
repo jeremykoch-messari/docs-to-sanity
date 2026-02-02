@@ -2,7 +2,6 @@ const express = require('express');
 const { createClient } = require('@sanity/client');
 
 const app = express();
-// Using 50mb is safer for Railway's default memory limits
 app.use(express.json({ limit: '50mb' })); 
 
 const client = createClient({
@@ -13,13 +12,23 @@ const client = createClient({
   useCdn: false
 });
 
-// Added a Root Route for Health Checks
-app.get('/', (req, res) => res.send('Bridge is Alive'));
+// Root route for Railway Health Check
+app.get('/', (req, res) => {
+  console.log("🟢 Health check hit at root /");
+  res.send('Bridge is Online');
+});
 
 app.post('/api/publish', async (req, res) => {
+  console.log("🚀 POST REQUEST RECEIVED at /api/publish");
   try {
     const { title, contentOrder } = req.body;
-    if (!contentOrder) return res.status(400).send("No data");
+    
+    if (!contentOrder || !Array.isArray(contentOrder)) {
+      console.log("⚠️ Received empty or invalid contentOrder");
+      return res.status(400).json({ error: "Missing contentOrder" });
+    }
+
+    console.log(`📝 Processing document: "${title}" with ${contentOrder.length} items.`);
 
     const blocks = [];
     for (let i = 0; i < contentOrder.length; i++) {
@@ -47,6 +56,7 @@ app.post('/api/publish', async (req, res) => {
           markDefs
         });
       } else if (item.type === 'image') {
+        console.log(`🖼️ Uploading image ${i}...`);
         const asset = await client.assets.upload('image', Buffer.from(item.base64, 'base64'));
         blocks.push({
           _type: 'image',
@@ -56,8 +66,9 @@ app.post('/api/publish', async (req, res) => {
       }
     }
 
+    const docId = `drafts.doc_${Date.now()}`;
     const doc = await client.create({
-      _id: `drafts.doc_${Date.now()}`,
+      _id: docId,
       _type: 'researchArticle',
       title: title,
       content: blocks,
@@ -67,15 +78,16 @@ app.post('/api/publish', async (req, res) => {
       slug: { _type: 'slug', current: title.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now() }
     });
 
-    res.json({ success: true, id: doc._id });
+    console.log(`✅ Draft created successfully: ${docId}`);
+    res.json({ success: true, id: docId });
+
   } catch (err) {
-    console.error('SERVER ERROR:', err.message);
-    res.status(500).send(err.message);
+    console.error('❌ SERVER ERROR:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Railway MUST have process.env.PORT to pass health checks
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Bridge Online on Port ${PORT}`);
+  console.log(`🚀 Bridge live on Port ${PORT}`);
 });
