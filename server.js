@@ -28,22 +28,31 @@ app.post('/publish', async (req, res) => {
     const bodyBlocks = [];
     
     for (const item of content) {
+      // Create a unique key for every block
+      const blockKey = crypto.randomBytes(6).toString('hex');
+
       if (item.type === 'text') {
         bodyBlocks.push({
           _type: 'block',
-          children: [{ _type: 'span', text: item.value }]
+          _key: blockKey, // CRITICAL
+          style: 'normal',
+          markDefs: [],
+          children: [{ 
+            _type: 'span', 
+            _key: blockKey + '-span', // CRITICAL
+            text: item.value 
+          }]
         });
       } else if (item.type === 'image') {
-        // Upload the image asset to Sanity
         const buffer = Buffer.from(item.base64, 'base64');
         const asset = await sanity.assets.upload('image', buffer, {
           contentType: item.contentType || 'image/png',
           filename: `${finalId}-image`
         });
         
-        // Push image reference into the body blocks array
         bodyBlocks.push({
           _type: 'image',
+          _key: blockKey, // CRITICAL
           asset: { _type: 'reference', _ref: asset._id }
         });
       }
