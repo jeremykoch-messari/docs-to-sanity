@@ -25,7 +25,6 @@ if (process.env.SANITY_API_TOKEN) {
 app.post('/publish', async (req, res) => {
   try {
     const { _id, title, content } = req.body;
-    // We use researchArticle as the type based on your JSON inspection
     const finalId = (_id && _id.startsWith('drafts.')) ? _id : `drafts.${crypto.randomUUID()}`;
 
     console.log(`Processing Draft: ${title} | ID: ${finalId}`);
@@ -35,16 +34,14 @@ app.post('/publish', async (req, res) => {
     for (const item of content) {
       const blockKey = crypto.randomBytes(6).toString('hex');
 
-     if (item.type === 'text') {
+      if (item.type === 'text') {
         const children = [];
         const markDefs = [];
 
-        // Loop through the segments sent from Google Docs
         item.segments.forEach((seg, idx) => {
           const spanKey = `${blockKey}-${idx}`;
           const marks = [];
 
-          // If the segment has a link, create a mark definition
           if (seg.link) {
             const linkKey = `link-${crypto.randomBytes(4).toString('hex')}`;
             marks.push(linkKey);
@@ -83,14 +80,13 @@ app.post('/publish', async (req, res) => {
           asset: { _type: 'reference', _ref: asset._id }
         });
       }
-    
+    }
 
-    // MATCHING YOUR SCHEMA: _type -> researchArticle, content field -> content
     const result = await sanity.createOrReplace({
-      _type: 'researchArticle', 
+      _type: 'researchArticle',
       _id: finalId,
       title: title,
-      content: bodyBlocks // Changed from 'body' to 'content'
+      content: bodyBlocks
     });
 
     console.log("✅ Sanity Sync Complete:", result._id);
