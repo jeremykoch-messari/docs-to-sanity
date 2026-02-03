@@ -16,7 +16,6 @@ const sanity = createClient({
 
 // 2. Startup Debug Logs
 console.log("🛠 Checking Environment Variables...");
-console.log("Project ID:", process.env.SANITY_PROJECT_ID);
 if (process.env.SANITY_API_TOKEN) {
   console.log("Token detected! Starts with:", process.env.SANITY_API_TOKEN.substring(0, 4));
 } else {
@@ -26,6 +25,7 @@ if (process.env.SANITY_API_TOKEN) {
 app.post('/publish', async (req, res) => {
   try {
     const { _id, title, content } = req.body;
+    // We use researchArticle as the type based on your JSON inspection
     const finalId = (_id && _id.startsWith('drafts.')) ? _id : `drafts.${crypto.randomUUID()}`;
 
     console.log(`Processing Draft: ${title} | ID: ${finalId}`);
@@ -33,15 +33,20 @@ app.post('/publish', async (req, res) => {
     const bodyBlocks = [];
 
     for (const item of content) {
-      const blockKey = crypto.randomBytes(6).toString('hex'); // Unique key for Sanity
+      const blockKey = crypto.randomBytes(6).toString('hex');
 
       if (item.type === 'text') {
         bodyBlocks.push({
           _type: 'block',
           _key: blockKey,
-          style: 'normal',
-          markDefs: [],
-          children: [{ _type: 'span', _key: blockKey + '-s', text: item.value }]
+          style: 'normal', // Default style from your JSON
+          markDefs: [],    // Required for links/annotations
+          children: [{ 
+            _type: 'span', 
+            _key: blockKey + '-s', 
+            marks: [], 
+            text: item.value 
+          }]
         });
       } else if (item.type === 'image') {
         const buffer = Buffer.from(item.base64, 'base64');
@@ -58,12 +63,15 @@ app.post('/publish', async (req, res) => {
       }
     }
 
+    // MATCHING YOUR SCHEMA: _type -> researchArticle, content field -> content
     const result = await sanity.createOrReplace({
-      _type: 'post',
+      _type: 'researchArticle', 
       _id: finalId,
       title: title,
-      body: bodyBlocks
+      content: bodyBlocks // Changed from 'body' to 'content'
     });
+
+    console.log("✅ Sanity Sync Complete:", result._id);
 
     res.status(200).json({ 
         status: "success", 
