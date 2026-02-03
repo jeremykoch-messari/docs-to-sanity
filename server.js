@@ -4,6 +4,24 @@ const { createClient } = require('@sanity/client');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
+// ... existing imports ...
+
+console.log("🛠 Checking Environment Variables...");
+console.log("Project ID:", process.env.SANITY_PROJECT_ID);
+// We only log the first 4 chars of the token for security
+if (process.env.SANITY_API_TOKEN) {
+  console.log("Token detected! Starts with:", process.env.SANITY_API_TOKEN.substring(0, 4));
+} else {
+  console.error("❌ ERROR: SANITY_API_TOKEN is missing in Railway variables!");
+}
+
+const sanity = createClient({
+  projectId: process.env.SANITY_PROJECT_ID,
+  dataset: 'production',
+  token: process.env.SANITY_API_TOKEN,
+  apiVersion: '2026-02-02',
+  useCdn: false
+});
 
 // Initialize Sanity Client
 const sanity = createClient({
@@ -83,3 +101,4 @@ app.listen(PORT, () => {
   console.log(`🚀 Railway Server Online on Port ${PORT}`);
   console.log(`Ready for IDs like: drafts.${crypto.randomUUID()}`);
 });
+
