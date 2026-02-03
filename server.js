@@ -35,18 +35,40 @@ app.post('/publish', async (req, res) => {
     for (const item of content) {
       const blockKey = crypto.randomBytes(6).toString('hex');
 
-      if (item.type === 'text') {
+     if (item.type === 'text') {
+        const children = [];
+        const markDefs = [];
+
+        // Loop through the segments sent from Google Docs
+        item.segments.forEach((seg, idx) => {
+          const spanKey = `${blockKey}-${idx}`;
+          const marks = [];
+
+          // If the segment has a link, create a mark definition
+          if (seg.link) {
+            const linkKey = `link-${crypto.randomBytes(4).toString('hex')}`;
+            marks.push(linkKey);
+            markDefs.push({
+              _key: linkKey,
+              _type: 'link',
+              href: seg.link
+            });
+          }
+
+          children.push({
+            _type: 'span',
+            _key: spanKey,
+            marks: marks,
+            text: seg.text
+          });
+        });
+
         bodyBlocks.push({
           _type: 'block',
           _key: blockKey,
-          style: 'normal', // Default style from your JSON
-          markDefs: [],    // Required for links/annotations
-          children: [{ 
-            _type: 'span', 
-            _key: blockKey + '-s', 
-            marks: [], 
-            text: item.value 
-          }]
+          style: 'normal',
+          markDefs: markDefs,
+          children: children
         });
       } else if (item.type === 'image') {
         const buffer = Buffer.from(item.base64, 'base64');
@@ -61,7 +83,7 @@ app.post('/publish', async (req, res) => {
           asset: { _type: 'reference', _ref: asset._id }
         });
       }
-    }
+    
 
     // MATCHING YOUR SCHEMA: _type -> researchArticle, content field -> content
     const result = await sanity.createOrReplace({
