@@ -5,7 +5,7 @@ const { createClient } = require('@sanity/client');
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
-// 1. Initialize Sanity Client (DO THIS ONLY ONCE)
+// 1. Initialize Sanity Client
 const sanity = createClient({
   projectId: process.env.SANITY_PROJECT_ID,
   dataset: 'production',
@@ -14,7 +14,7 @@ const sanity = createClient({
   useCdn: false
 });
 
-// 2. DEBUG LOGS (To check if Railway is working)
+// 2. Startup Debug Logs
 console.log("🛠 Checking Environment Variables...");
 console.log("Project ID:", process.env.SANITY_PROJECT_ID);
 if (process.env.SANITY_API_TOKEN) {
@@ -23,41 +23,25 @@ if (process.env.SANITY_API_TOKEN) {
   console.error("❌ ERROR: SANITY_API_TOKEN is missing!");
 }
 
-// 3. YOUR PUBLISH ROUTE
-app.post('/publish', async (req, res) => {
-// ... rest of the code
-
-// ... the rest of your app.post('/publish'...) code
-
-
 app.post('/publish', async (req, res) => {
   try {
     const { _id, title, content } = req.body;
-
-    // 1. Ensure the ID follows the 'drafts.[UUID]' structure
-    // We prioritize the ID sent from Google, but validate it here
     const finalId = (_id && _id.startsWith('drafts.')) ? _id : `drafts.${crypto.randomUUID()}`;
 
     console.log(`Processing Draft: ${title} | ID: ${finalId}`);
 
-    // 2. Map Ordered Content for Sanity Portable Text
     const bodyBlocks = [];
-    
+
     for (const item of content) {
-      // Create a unique key for every block
-      const blockKey = crypto.randomBytes(6).toString('hex');
+      const blockKey = crypto.randomBytes(6).toString('hex'); // Unique key for Sanity
 
       if (item.type === 'text') {
         bodyBlocks.push({
           _type: 'block',
-          _key: blockKey, // CRITICAL
+          _key: blockKey,
           style: 'normal',
           markDefs: [],
-          children: [{ 
-            _type: 'span', 
-            _key: blockKey + '-span', // CRITICAL
-            text: item.value 
-          }]
+          children: [{ _type: 'span', _key: blockKey + '-s', text: item.value }]
         });
       } else if (item.type === 'image') {
         const buffer = Buffer.from(item.base64, 'base64');
@@ -68,15 +52,14 @@ app.post('/publish', async (req, res) => {
         
         bodyBlocks.push({
           _type: 'image',
-          _key: blockKey, // CRITICAL
+          _key: blockKey,
           asset: { _type: 'reference', _ref: asset._id }
         });
       }
     }
 
-    // 3. Create or Replace in Sanity
     const result = await sanity.createOrReplace({
-      _type: 'post', // Ensure this matches your Sanity Schema name
+      _type: 'post',
       _id: finalId,
       title: title,
       body: bodyBlocks
@@ -84,8 +67,7 @@ app.post('/publish', async (req, res) => {
 
     res.status(200).json({ 
         status: "success", 
-        id: result._id,
-        itemsProcessed: content.length 
+        id: result._id 
     });
 
   } catch (err) {
@@ -97,6 +79,4 @@ app.post('/publish', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Railway Server Online on Port ${PORT}`);
-  console.log(`Ready for IDs like: drafts.${crypto.randomUUID()}`);
 });
-
