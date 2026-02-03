@@ -5,36 +5,30 @@ const { createClient } = require('@sanity/client');
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
-// --- DEBUG LOGS ---
+// 1. Initialize Sanity Client (DO THIS ONLY ONCE)
+const sanity = createClient({
+  projectId: process.env.SANITY_PROJECT_ID,
+  dataset: 'production',
+  token: process.env.SANITY_API_TOKEN,
+  apiVersion: '2026-02-02',
+  useCdn: false
+});
+
+// 2. DEBUG LOGS (To check if Railway is working)
 console.log("🛠 Checking Environment Variables...");
 console.log("Project ID:", process.env.SANITY_PROJECT_ID);
-
 if (process.env.SANITY_API_TOKEN) {
   console.log("Token detected! Starts with:", process.env.SANITY_API_TOKEN.substring(0, 4));
 } else {
   console.error("❌ ERROR: SANITY_API_TOKEN is missing!");
 }
-// ------------------
 
-// Initialize Sanity Client (ONLY ONCE)
-const sanity = createClient({
-  projectId: process.env.SANITY_PROJECT_ID,
-  dataset: 'production',
-  token: process.env.SANITY_API_TOKEN,
-  apiVersion: '2026-02-02',
-  useCdn: false
-});
+// 3. YOUR PUBLISH ROUTE
+app.post('/publish', async (req, res) => {
+// ... rest of the code
 
 // ... the rest of your app.post('/publish'...) code
 
-// Initialize Sanity Client
-const sanity = createClient({
-  projectId: process.env.SANITY_PROJECT_ID,
-  dataset: 'production',
-  token: process.env.SANITY_API_TOKEN,
-  apiVersion: '2026-02-02',
-  useCdn: false
-});
 
 app.post('/publish', async (req, res) => {
   try {
