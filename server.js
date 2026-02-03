@@ -1,20 +1,22 @@
 const express = require('express');
-const crypto = require('crypto'); // Built-in: No install needed
+const crypto = require('crypto');
 const { createClient } = require('@sanity/client');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
-// ... existing imports ...
 
+// --- DEBUG LOGS ---
 console.log("🛠 Checking Environment Variables...");
 console.log("Project ID:", process.env.SANITY_PROJECT_ID);
-// We only log the first 4 chars of the token for security
+
 if (process.env.SANITY_API_TOKEN) {
   console.log("Token detected! Starts with:", process.env.SANITY_API_TOKEN.substring(0, 4));
 } else {
-  console.error("❌ ERROR: SANITY_API_TOKEN is missing in Railway variables!");
+  console.error("❌ ERROR: SANITY_API_TOKEN is missing!");
 }
+// ------------------
 
+// Initialize Sanity Client (ONLY ONCE)
 const sanity = createClient({
   projectId: process.env.SANITY_PROJECT_ID,
   dataset: 'production',
@@ -22,6 +24,8 @@ const sanity = createClient({
   apiVersion: '2026-02-02',
   useCdn: false
 });
+
+// ... the rest of your app.post('/publish'...) code
 
 // Initialize Sanity Client
 const sanity = createClient({
