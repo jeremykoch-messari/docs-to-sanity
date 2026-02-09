@@ -60,49 +60,23 @@ app.post('/publish', async (req, res) => {
           });
         });
 
-        bodyBlocks.push({
+        // BUILD THE BLOCK WITH LIST SUPPORT
+        const block = {
           _type: 'block',
           _key: blockKey,
           style: 'normal',
           markDefs: markDefs,
           children: children
-        });
+        };
+
+        // If the item has list info from Google Docs, add it to the block
+        if (item.listItem) {
+          block.listItem = item.listItem;
+          block.level = item.level || 1;
+        }
+
+        bodyBlocks.push(block);
       } else if (item.type === 'image') {
         const buffer = Buffer.from(item.base64, 'base64');
         const asset = await sanity.assets.upload('image', buffer, {
-          contentType: item.contentType || 'image/png',
-          filename: `${finalId}-image`
-        });
-        
-        bodyBlocks.push({
-          _type: 'image',
-          _key: blockKey,
-          asset: { _type: 'reference', _ref: asset._id }
-        });
-      }
-    }
-
-    const result = await sanity.createOrReplace({
-      _type: 'researchArticle',
-      _id: finalId,
-      title: title,
-      content: bodyBlocks
-    });
-
-    console.log("✅ Sanity Sync Complete:", result._id);
-
-    res.status(200).json({ 
-        status: "success", 
-        id: result._id 
-    });
-
-  } catch (err) {
-    console.error("Sanity Push Error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Railway Server Online on Port ${PORT}`);
-});
+          contentType: item.
